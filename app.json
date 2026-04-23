@@ -24,6 +24,18 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4e6f4792-ecb4-413d-81bc-0924a51f2621"
+      }
+    },
+    "owner": "neo826",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/4e6f4792-ecb4-413d-81bc-0924a51f2621"
     }
   }
 }
