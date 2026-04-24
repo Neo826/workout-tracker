@@ -130,14 +130,14 @@ const ILLUSTRATIONS = {
   kettlebell: KettlebellIllustration,
 };
 
-export default function ExerciseCard({ name, onSelect, onInfo }) {
+export default function ExerciseCard({ name, selected, onSelect, onInfo }) {
   const equipmentType = EXERCISE_EQUIPMENT[name] || 'barbell';
   const Illustration = ILLUSTRATIONS[equipmentType];
   const info = EXERCISE_INFO[name];
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, selected && styles.cardSelected]}
       onPress={() => onSelect(name)}
       onLongPress={() => onInfo(name)}
       activeOpacity={0.8}
@@ -172,6 +172,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2a2a2a',
     overflow: 'hidden',
+  },
+  cardSelected: {
+    borderColor: '#00d4ff',
+    borderWidth: 2,
+    backgroundColor: '#0d2030',
   },
   illustrationBox: {
     width: '100%',

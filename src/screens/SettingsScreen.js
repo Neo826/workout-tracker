@@ -4,38 +4,36 @@ import {
   StyleSheet, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getGoals, saveGoals, MUSCLE_LABELS, MUSCLE_EXERCISES } from '../utils/storage';
+import { getMuscleGroups, saveMuscleGroups, MUSCLE_LABELS, MUSCLE_IDS } from '../utils/storage';
 import { getMuscleColor } from '../utils/colors';
 
-const MUSCLES = ['chest', 'shoulders', 'biceps', 'triceps', 'abs', 'obliques', 'quads', 'upper_back', 'lats', 'lower_back', 'glutes', 'hamstrings', 'calves'];
-
 export default function SettingsScreen() {
-  const [goals, setGoals] = useState({});
+  const [groups, setGroups] = useState({});
   const [saved, setSaved] = useState(false);
 
   useFocusEffect(useCallback(() => {
-    getGoals().then(g => {
-      const strGoals = {};
-      MUSCLES.forEach(m => {
-        strGoals[m] = { exercise: g[m]?.exercise || '', maxWeight: String(g[m]?.maxWeight || '') };
+    getMuscleGroups().then(g => {
+      const strGroups = {};
+      MUSCLE_IDS.forEach(id => {
+        strGroups[id] = { ...g[id], targetVolume: String(g[id]?.targetVolume || '') };
       });
-      setGoals(strGoals);
+      setGroups(strGroups);
     });
   }, []));
 
-  const update = (muscle, field, value) => {
-    setGoals(prev => ({ ...prev, [muscle]: { ...prev[muscle], [field]: value } }));
+  const update = (id, value) => {
+    setGroups(prev => ({ ...prev, [id]: { ...prev[id], targetVolume: value } }));
   };
 
   const handleSave = async () => {
     const parsed = {};
-    MUSCLES.forEach(m => {
-      parsed[m] = {
-        exercise: goals[m]?.exercise || '',
-        maxWeight: parseFloat(goals[m]?.maxWeight) || 0,
+    MUSCLE_IDS.forEach(id => {
+      parsed[id] = {
+        ...groups[id],
+        targetVolume: parseFloat(groups[id]?.targetVolume) || 0,
       };
     });
-    await saveGoals(parsed);
+    await saveMuscleGroups(parsed);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -43,61 +41,60 @@ export default function SettingsScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={styles.container}>
-        <Text style={styles.intro}>
-          Set your goal weight for each muscle group. The body diagram colors update based on how close your logged weights are to these goals.
-        </Text>
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>How Volume Progress Works</Text>
+          <Text style={styles.infoText}>
+            Each workout contributes volume (weight × reps × muscle contribution %).
+            Volume decays 5% per day, so recent workouts count most.
+            Set your target volume to match what you want to achieve weekly at peak training.
+          </Text>
+          <Text style={styles.infoExample}>
+            Example: 4 sets × 10 reps × 135 lbs bench press = 5,400 lbs raw volume.
+            At 60% chest contribution that adds 3,240 lbs toward chest target.
+          </Text>
+        </View>
 
-        {MUSCLES.map(muscle => {
-          const g = goals[muscle] || { exercise: '', maxWeight: '' };
-          const maxW = parseFloat(g.maxWeight) || 0;
+        {MUSCLE_IDS.map(id => {
+          const g = groups[id] || { targetVolume: '' };
+          const tv = parseFloat(g.targetVolume) || 0;
           return (
-            <View key={muscle} style={styles.card}>
+            <View key={id} style={styles.card}>
               <View style={styles.cardHeader}>
-                <View style={[styles.colorDot, { backgroundColor: getMuscleColor(maxW, maxW) || '#2a2a2a' }]} />
-                <Text style={styles.muscleLabel}>{MUSCLE_LABELS[muscle]}</Text>
+                <View style={[styles.colorDot, { backgroundColor: tv > 0 ? getMuscleColor(1) : '#2a2a2a' }]} />
+                <Text style={styles.muscleLabel}>{MUSCLE_LABELS[id]}</Text>
               </View>
 
-              <Text style={styles.fieldLabel}>Primary Exercise</Text>
+              <Text style={styles.fieldLabel}>Target Volume (lbs)</Text>
               <TextInput
                 style={styles.input}
-                value={g.exercise}
-                onChangeText={v => update(muscle, 'exercise', v)}
-                placeholder={`e.g. ${MUSCLE_EXERCISES[muscle]?.[0] || ''}`}
-                placeholderTextColor="#555"
-              />
-
-              <Text style={styles.fieldLabel}>Goal Weight (lbs)</Text>
-              <TextInput
-                style={styles.input}
-                value={g.maxWeight}
-                onChangeText={v => update(muscle, 'maxWeight', v)}
-                placeholder="e.g. 225"
+                value={g.targetVolume}
+                onChangeText={v => update(id, v)}
+                placeholder="e.g. 10000"
                 placeholderTextColor="#555"
                 keyboardType="decimal-pad"
               />
 
-              {maxW > 0 && (
-                <View style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>Color at 100% goal:</Text>
-                  <View style={[styles.previewDot, { backgroundColor: getMuscleColor(maxW, maxW) }]} />
-                </View>
+              {tv > 0 && (
+                <Text style={styles.hint}>
+                  Reaching {tv.toLocaleString()} lbs of decayed volume = 100% (green)
+                </Text>
               )}
             </View>
           );
         })}
 
         <View style={styles.legendCard}>
-          <Text style={styles.legendTitle}>How the colors work</Text>
+          <Text style={styles.legendTitle}>Color Scale</Text>
           <View style={styles.legendRows}>
             {[
-              { label: 'Never logged', pct: 0 },
-              { label: '25% of goal', pct: 0.25 },
-              { label: '50% of goal', pct: 0.5 },
-              { label: '75% of goal', pct: 0.75 },
-              { label: '100% of goal', pct: 1.0 },
-            ].map(({ label, pct }) => (
+              { label: '0% — No recent training', t: 0 },
+              { label: '25% — Some activity', t: 0.25 },
+              { label: '50% — Half way to goal', t: 0.5 },
+              { label: '75% — Good progress', t: 0.75 },
+              { label: '100% — At target volume', t: 1.0 },
+            ].map(({ label, t }) => (
               <View key={label} style={styles.legendRow}>
-                <View style={[styles.legendDot, { backgroundColor: getMuscleColor(pct, 1) }]} />
+                <View style={[styles.legendDot, { backgroundColor: getMuscleColor(t) }]} />
                 <Text style={styles.legendLabel}>{label}</Text>
               </View>
             ))}
@@ -105,7 +102,7 @@ export default function SettingsScreen() {
         </View>
 
         <TouchableOpacity style={[styles.saveBtn, saved && styles.savedBtn]} onPress={handleSave}>
-          <Text style={styles.saveBtnText}>{saved ? '✓ Saved!' : 'Save Goals'}</Text>
+          <Text style={styles.saveBtnText}>{saved ? '✓ Saved!' : 'Save Target Volumes'}</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -114,7 +111,14 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f0f0f', padding: 16 },
-  intro: { color: '#666', fontSize: 13, lineHeight: 20, marginBottom: 20 },
+
+  infoCard: {
+    backgroundColor: '#1a1f1a', borderRadius: 14, padding: 16,
+    marginBottom: 20, borderWidth: 1, borderColor: '#2a3a2a',
+  },
+  infoTitle: { color: '#00d4ff', fontSize: 14, fontWeight: '700', marginBottom: 8 },
+  infoText: { color: '#888', fontSize: 13, lineHeight: 20, marginBottom: 10 },
+  infoExample: { color: '#555', fontSize: 12, lineHeight: 18, fontStyle: 'italic' },
 
   card: {
     backgroundColor: '#1a1a1a', borderRadius: 14, padding: 16,
@@ -127,11 +131,9 @@ const styles = StyleSheet.create({
   fieldLabel: { color: '#888', fontSize: 11, fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: {
     backgroundColor: '#252525', borderRadius: 8,
-    padding: 11, color: '#fff', fontSize: 14, marginBottom: 12,
+    padding: 11, color: '#fff', fontSize: 14, marginBottom: 8,
   },
-  previewRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
-  previewLabel: { color: '#555', fontSize: 11 },
-  previewDot: { width: 16, height: 16, borderRadius: 8 },
+  hint: { color: '#444', fontSize: 11 },
 
   legendCard: {
     backgroundColor: '#1a1a1a', borderRadius: 14, padding: 16,

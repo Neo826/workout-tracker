@@ -1,43 +1,74 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getWorkouts, MUSCLE_LABELS } from '../utils/storage';
-import { getMuscleColor } from '../utils/colors';
+import { getWorkouts, getExercises, MUSCLE_LABELS, MUSCLE_IDS } from '../utils/storage';
 
-const FILTERS = ['All', 'Chest', 'Deltoids', 'Biceps', 'Triceps', 'Abs', 'Obliques', 'Quadriceps', 'Upper Back', 'Lats', 'Lower Back', 'Glutes', 'Hamstrings', 'Calves'];
-const FILTER_KEYS = {
-  'All': null, 'Chest': 'chest', 'Deltoids': 'shoulders', 'Biceps': 'biceps',
-  'Triceps': 'triceps', 'Abs': 'abs', 'Obliques': 'obliques', 'Quadriceps': 'quads',
-  'Upper Back': 'upper_back', 'Lats': 'lats', 'Lower Back': 'lower_back',
-  'Glutes': 'glutes', 'Hamstrings': 'hamstrings', 'Calves': 'calves',
-};
+const FILTERS = ['All', ...MUSCLE_IDS.map(id => MUSCLE_LABELS[id])];
+const FILTER_KEYS = Object.fromEntries([
+  ['All', null],
+  ...MUSCLE_IDS.map(id => [MUSCLE_LABELS[id], id]),
+]);
 
-export default function HistoryScreen({ navigation }) {
+export default function HistoryScreen() {
   const [grouped, setGrouped] = useState([]);
   const [filter, setFilter] = useState('All');
-  const [allWorkouts, setAllWorkouts] = useState([]);
+  const [allLogs, setAllLogs] = useState([]);
+  const [exercises, setExercises] = useState([]);
 
   useFocusEffect(useCallback(() => {
-    getWorkouts().then(w => {
-      setAllWorkouts(w);
-      groupWorkouts(w, filter);
-    });
+    (async () => {
+      const [logs, exs] = await Promise.all([getWorkouts(), getExercises()]);
+      setAllLogs(logs);
+      setExercises(exs);
+      groupLogs(logs, exs, filter);
+    })();
   }, []));
 
-  const groupWorkouts = (workouts, activeFilter) => {
-    const key = FILTER_KEYS[activeFilter];
-    const filtered = key ? workouts.filter(w => w.muscleGroup === key) : workouts;
+  const resolveExerciseName = (log, exs) => {
+    if (log.exerciseId) {
+      return exs.find(e => e.id === log.exerciseId)?.name || log.exerciseId;
+    }
+    return log.exercise || 'Unknown';
+  };
+
+  const logMatchesMuscle = (log, muscleId, exs) => {
+    if (log.exerciseId) {
+      const ex = exs.find(e => e.id === log.exerciseId);
+      return ex?.muscleContributions.some(c => c.muscleId === muscleId);
+    }
+    return log.muscleGroup === muscleId;
+  };
+
+  const LEGACY_EXPAND = {
+    shoulders:  ['front_delt', 'side_delt', 'rear_delt'],
+    upper_back: ['rhomboids', 'traps'],
+  };
+
+  const getLogMuscles = (log, exs) => {
+    if (log.exerciseId) {
+      const ex = exs.find(e => e.id === log.exerciseId);
+      return ex?.muscleContributions.map(c => c.muscleId) || [];
+    }
+    if (!log.muscleGroup) return [];
+    return LEGACY_EXPAND[log.muscleGroup] || [log.muscleGroup];
+  };
+
+  const groupLogs = (logs, exs, activeFilter) => {
+    const muscleKey = FILTER_KEYS[activeFilter];
+    const filtered = muscleKey
+      ? logs.filter(log => logMatchesMuscle(log, muscleKey, exs))
+      : logs;
     const map = {};
-    filtered.forEach(w => {
-      if (!map[w.date]) map[w.date] = [];
-      map[w.date].push(w);
+    filtered.forEach(log => {
+      if (!map[log.date]) map[log.date] = [];
+      map[log.date].push(log);
     });
     setGrouped(Object.entries(map).sort(([a], [b]) => b.localeCompare(a)));
   };
 
   const handleFilter = (f) => {
     setFilter(f);
-    groupWorkouts(allWorkouts, f);
+    groupLogs(allLogs, exercises, f);
   };
 
   if (grouped.length === 0) {
@@ -68,13 +99,13 @@ export default function HistoryScreen({ navigation }) {
       </ScrollView>
 
       <ScrollView style={styles.list}>
-        {grouped.map(([date, entries]) => {
+        {grouped.map(([date, logs]) => {
           const label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
             weekday: 'long', month: 'short', day: 'numeric',
           });
-          const muscles = [...new Set(entries.map(e => e.muscleGroup))];
-          const totalSets = entries.reduce((s, e) => s + e.sets.length, 0);
-          const totalVol = entries.reduce((s, e) => s + e.sets.reduce((sv, set) => sv + set.weight * set.reps, 0), 0);
+          const allMuscleIds = [...new Set(logs.flatMap(log => getLogMuscles(log, exercises)))];
+          const totalSets = logs.reduce((s, log) => s + log.sets.length, 0);
+          const totalVol = logs.reduce((s, log) => s + log.sets.reduce((sv, set) => sv + set.weight * set.reps, 0), 0);
 
           return (
             <View key={date} style={styles.dayCard}>
@@ -84,20 +115,21 @@ export default function HistoryScreen({ navigation }) {
               </View>
 
               <View style={styles.muscleTags}>
-                {muscles.map(m => (
+                {allMuscleIds.map(m => (
                   <View key={m} style={styles.muscleTag}>
-                    <Text style={styles.muscleTagText}>{MUSCLE_LABELS[m]}</Text>
+                    <Text style={styles.muscleTagText}>{MUSCLE_LABELS[m] || m}</Text>
                   </View>
                 ))}
               </View>
 
-              {entries.map(entry => {
-                const best = Math.max(...entry.sets.map(s => s.weight));
+              {logs.map(log => {
+                const name = resolveExerciseName(log, exercises);
+                const best = Math.max(...log.sets.map(s => s.weight));
                 return (
-                  <View key={entry.id} style={styles.entryRow}>
+                  <View key={log.id} style={styles.entryRow}>
                     <View style={styles.entryLeft}>
-                      <Text style={styles.entryExercise}>{entry.exercise}</Text>
-                      <Text style={styles.entrySets}>{entry.sets.length} sets</Text>
+                      <Text style={styles.entryExercise}>{name}</Text>
+                      <Text style={styles.entrySets}>{log.sets.length} sets</Text>
                     </View>
                     <View style={styles.entryRight}>
                       <Text style={styles.entryBest}>{best} lbs</Text>
